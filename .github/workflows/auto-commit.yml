@@ -1,0 +1,90 @@
+name: Daily Green Commit
+
+on:
+  schedule:
+    # Jadwal acak: jalan di 3 waktu berbeda biar nggak keliatan robotic
+    # Pilih SATU yang cocok, atau pakai ketiganya buat variasi
+    - cron: '17 14 * * 1,3,5'   # Senin/Rabu/Jumat jam 21:17 WIB
+    - cron: '42 15 * * 2,4'     # Selasa/Kamis jam 22:42 WIB
+    - cron: '5 13 * * 0,6'      # Sabtu/Minggu jam 20:05 WIB
+  workflow_dispatch:              # Manual trigger kapan aja
+
+permissions:
+  contents: write
+
+jobs:
+  daily-update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate daily content
+        run: |
+          # === KONFIGURASI ===
+          # Ganti dengan nama & email GitHub kamu (WAJIB email terverifikasi!)
+          GIT_USER="Renohidayat"
+          GIT_EMAIL="hidayatreno085@gmail.com"
+
+          git config user.name "$GIT_USER"
+          git config user.email "$GIT_EMAIL"
+
+          # === GENERATE KONTEN YANG BERVARIASI ===
+          TODAY=$(date +'%Y-%m-%d')
+          DAY_OF_WEEK=$(date +'%A')
+          WEEK_NUM=$(date +'%U')
+
+          # Pilih tipe konten secara acak biar nggak monoton
+          CONTENT_TYPE=$((RANDOM % 5))
+
+          case $CONTENT_TYPE in
+            0)
+              # Update log harian
+              echo "## $TODAY ($DAY_OF_WEEK)" >> log.md
+              echo "- Daily checkpoint" >> log.md
+              echo "" >> log.md
+              COMMIT_MSG="docs: daily log $TODAY"
+              ;;
+            1)
+              # Update progress tracker
+              mkdir -p progress
+              echo "# Week $WEEK_NUM Progress" > "progress/week-$WEEK_NUM.md"
+              echo "- [$TODAY] Active" >> "progress/week-$WEEK_NUM.md"
+              COMMIT_MSG="docs: update week $WEEK_NUM progress"
+              ;;
+            2)
+              # Random quote/TIL (Today I Learned)
+              TOPICS=("git" "linux" "docker" "python" "javascript" "sql" "networking" "security")
+              TOPIC=${TOPICS[$((RANDOM % ${#TOPICS[@]}))]}
+              mkdir -p til
+              echo "# TIL: $TOPIC — $TODAY" > "til/$TODAY.md"
+              echo "" >> "til/$TODAY.md"
+              echo "Placeholder for today's learning about $TOPIC." >> "til/$TODAY.md"
+              echo "TODO: Replace with actual notes." >> "til/$TODAY.md"
+              COMMIT_MSG="docs: TIL about $TOPIC"
+              ;;
+            3)
+              # Update stats
+              TOTAL_DAYS=$(find . -name "*.md" -not -path "./.github/*" | wc -l)
+              echo "# Daily Log Stats" > stats.md
+              echo "" >> stats.md
+              echo "- **Last updated**: $TODAY" >> stats.md
+              echo "- **Total entries**: $TOTAL_DAYS" >> stats.md
+              echo "- **Current streak week**: $WEEK_NUM" >> stats.md
+              COMMIT_MSG="docs: update stats"
+              ;;
+            4)
+              # Micro-journal
+              mkdir -p journal
+              MONTH=$(date +'%Y-%m')
+              echo "### $TODAY" >> "journal/$MONTH.md"
+              echo "- Status: active" >> "journal/$MONTH.md"
+              echo "" >> "journal/$MONTH.md"
+              COMMIT_MSG="docs: journal entry $TODAY"
+              ;;
+          esac
+
+          # === COMMIT & PUSH ===
+          git add -A
+          git diff --cached --quiet && echo "Nothing to commit" && exit 0
+          git commit -m "$COMMIT_MSG"
+          git push
