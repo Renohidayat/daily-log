@@ -11,6 +11,8 @@ on:
 
 permissions:
   contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
   daily-update:
@@ -19,6 +21,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Generate daily content
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # === KONFIGURASI ===
           # Ganti dengan nama & email GitHub kamu (WAJIB email terverifikasi!)
@@ -28,63 +32,81 @@ jobs:
           git config user.name "$GIT_USER"
           git config user.email "$GIT_EMAIL"
 
-          # === GENERATE KONTEN YANG BERVARIASI ===
+          # === GENERATE KONTEN YANG BERVARIASI SECARA ACAK ===
           TODAY=$(date +'%Y-%m-%d')
           DAY_OF_WEEK=$(date +'%A')
           WEEK_NUM=$(date +'%U')
 
-          # Pilih tipe konten secara acak biar nggak monoton
-          CONTENT_TYPE=$((RANDOM % 5))
+          # Peluang membuat Issue: 50%
+          if [ $((RANDOM % 2)) -eq 1 ]; then
+            echo "Membuat Issue..."
+            ISSUE_URL=$(gh issue create --title "Log update for $TODAY" --body "Automated daily log issue to balance activity stats.")
+            echo "Menutup Issue $ISSUE_URL..."
+            gh issue close "$ISSUE_URL" --reason completed
+          fi
 
-          case $CONTENT_TYPE in
-            0)
-              # Update log harian
-              echo "## $TODAY ($DAY_OF_WEEK)" >> log.md
-              echo "- Daily checkpoint" >> log.md
-              echo "" >> log.md
-              COMMIT_MSG="docs: daily log $TODAY"
-              ;;
-            1)
-              # Update progress tracker
-              mkdir -p progress
-              echo "# Week $WEEK_NUM Progress" > "progress/week-$WEEK_NUM.md"
-              echo "- [$TODAY] Active" >> "progress/week-$WEEK_NUM.md"
-              COMMIT_MSG="docs: update week $WEEK_NUM progress"
-              ;;
-            2)
-              # Random quote/TIL (Today I Learned)
-              TOPICS=("git" "linux" "docker" "python" "javascript" "sql" "networking" "security")
-              TOPIC=${TOPICS[$((RANDOM % ${#TOPICS[@]}))]}
-              mkdir -p til
-              echo "# TIL: $TOPIC — $TODAY" > "til/$TODAY.md"
-              echo "" >> "til/$TODAY.md"
-              echo "Placeholder for today's learning about $TOPIC." >> "til/$TODAY.md"
-              echo "TODO: Replace with actual notes." >> "til/$TODAY.md"
-              COMMIT_MSG="docs: TIL about $TOPIC"
-              ;;
-            3)
-              # Update stats
-              TOTAL_DAYS=$(find . -name "*.md" -not -path "./.github/*" | wc -l)
-              echo "# Daily Log Stats" > stats.md
-              echo "" >> stats.md
-              echo "- **Last updated**: $TODAY" >> stats.md
-              echo "- **Total entries**: $TOTAL_DAYS" >> stats.md
-              echo "- **Current streak week**: $WEEK_NUM" >> stats.md
-              COMMIT_MSG="docs: update stats"
-              ;;
-            4)
-              # Micro-journal
-              mkdir -p journal
-              MONTH=$(date +'%Y-%m')
-              echo "### $TODAY" >> "journal/$MONTH.md"
-              echo "- Status: active" >> "journal/$MONTH.md"
-              echo "" >> "journal/$MONTH.md"
-              COMMIT_MSG="docs: journal entry $TODAY"
-              ;;
-          esac
+          # Peluang membuat PR & Code Review: 50%
+          USE_PR=$((RANDOM % 2))
+          BRANCH_NAME="update-$TODAY-$RANDOM"
+          if [ $USE_PR -eq 1 ]; then
+            echo "Membuat branch baru untuk Pull Request..."
+            git checkout -b $BRANCH_NAME
+          fi
 
-          # === COMMIT & PUSH ===
-          git add -A
-          git diff --cached --quiet && echo "Nothing to commit" && exit 0
-          git commit -m "$COMMIT_MSG"
-          git push
+          # Acak jumlah commit antara 1 sampai 14 agar warna GitHub bervariasi
+          NUM_COMMITS=$((RANDOM % 14 + 1))
+          echo "Hari ini akan melakukan $NUM_COMMITS commit"
+
+          for i in $(seq 1 $NUM_COMMITS); do
+            # Pilih tipe konten secara acak biar nggak monoton
+            CONTENT_TYPE=$((RANDOM % 5))
+
+            case $CONTENT_TYPE in
+              0)
+                echo "## $TODAY ($DAY_OF_WEEK) - Part $i" >> log.md
+                echo "- Daily checkpoint (Commit $i of $NUM_COMMITS)" >> log.md
+                echo "" >> log.md
+                COMMIT_MSG="docs: daily log $TODAY part $i"
+                ;;
+              1)
+                mkdir -p progress
+                echo "- [$TODAY] Active (Update $i)" >> "progress/week-$WEEK_NUM.md"
+                COMMIT_MSG="docs: update week $WEEK_NUM progress part $i"
+                ;;
+              2)
+                TOPICS=("git" "linux" "docker" "python" "javascript" "sql" "networking" "security")
+                TOPIC=${TOPICS[$((RANDOM % ${#TOPICS[@]}))]}
+                mkdir -p til
+                echo "- TIL $TODAY part $i: Learned more about $TOPIC." >> "til/$TODAY.md"
+                COMMIT_MSG="docs: TIL about $TOPIC part $i"
+                ;;
+              3)
+                TOTAL_DAYS=$(find . -name "*.md" -not -path "./.github/*" | wc -l)
+                echo "- **Last updated**: $TODAY ($i/$NUM_COMMITS)" >> stats.md
+                COMMIT_MSG="docs: update stats part $i"
+                ;;
+              4)
+                mkdir -p journal
+                MONTH=$(date +'%Y-%m')
+                echo "- Status: active (Commit $i)" >> "journal/$MONTH.md"
+                COMMIT_MSG="docs: journal entry $TODAY part $i"
+                ;;
+            esac
+
+            # === COMMIT ===
+            git add -A
+            git diff --cached --quiet || git commit -m "$COMMIT_MSG"
+          done
+
+          # === PUSH & PR ===
+          if [ $USE_PR -eq 1 ]; then
+            git push -u origin $BRANCH_NAME
+            echo "Membuat Pull Request..."
+            PR_URL=$(gh pr create --title "Daily update $TODAY" --body "Automated PR to balance PR stats.")
+            echo "Memberikan Code Review (comment)..."
+            gh pr review "$PR_URL" --comment -b "Lgtm! Automated review by bot."
+            echo "Merge Pull Request..."
+            gh pr merge "$PR_URL" --merge --delete-branch
+          else
+            git push
+          fi
