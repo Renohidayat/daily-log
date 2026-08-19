@@ -3,7 +3,6 @@ name: Daily Green Commit
 on:
   schedule:
     # Jadwal acak: jalan di 3 waktu berbeda biar nggak keliatan robotic
-    # Pilih SATU yang cocok, atau pakai ketiganya buat variasi
     - cron: '17 14 * * 1,3,5'   # Senin/Rabu/Jumat jam 21:17 WIB
     - cron: '42 15 * * 2,4'     # Selasa/Kamis jam 22:42 WIB
     - cron: '5 13 * * 0,6'      # Sabtu/Minggu jam 20:05 WIB
@@ -15,50 +14,31 @@ permissions:
   pull-requests: write
 
 jobs:
-  daily-update:
+  # === JOB 1: COMMIT & PUSH (WAJIB SUKSES) ===
+  daily-commit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Generate daily content
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate daily content & push
         run: |
           # === KONFIGURASI ===
-          # Ganti dengan nama & email GitHub kamu (WAJIB email terverifikasi!)
           GIT_USER="Renohidayat"
           GIT_EMAIL="hidayatreno085@gmail.com"
 
           git config user.name "$GIT_USER"
           git config user.email "$GIT_EMAIL"
 
-          # === GENERATE KONTEN YANG BERVARIASI SECARA ACAK ===
+          # === GENERATE KONTEN ===
           TODAY=$(date +'%Y-%m-%d')
           DAY_OF_WEEK=$(date +'%A')
           WEEK_NUM=$(date +'%U')
 
-          # Peluang membuat Issue: 50%
-          if [ $((RANDOM % 2)) -eq 1 ]; then
-            echo "Membuat Issue..."
-            ISSUE_URL=$(gh issue create --title "Log update for $TODAY" --body "Automated daily log issue to balance activity stats.")
-            echo "Menutup Issue $ISSUE_URL..."
-            gh issue close "$ISSUE_URL" --reason completed
-          fi
-
-          # Peluang membuat PR & Code Review: 50%
-          USE_PR=$((RANDOM % 2))
-          BRANCH_NAME="update-$TODAY-$RANDOM"
-          if [ $USE_PR -eq 1 ]; then
-            echo "Membuat branch baru untuk Pull Request..."
-            git checkout -b $BRANCH_NAME
-          fi
-
-          # Acak jumlah commit antara 1 sampai 14 agar warna GitHub bervariasi
+          # Acak jumlah commit antara 1 sampai 14
           NUM_COMMITS=$((RANDOM % 14 + 1))
           echo "Hari ini akan melakukan $NUM_COMMITS commit"
 
           for i in $(seq 1 $NUM_COMMITS); do
-            # Pilih tipe konten secara acak biar nggak monoton
             CONTENT_TYPE=$((RANDOM % 5))
 
             case $CONTENT_TYPE in
@@ -93,20 +73,81 @@ jobs:
                 ;;
             esac
 
-            # === COMMIT ===
             git add -A
             git diff --cached --quiet || git commit -m "$COMMIT_MSG"
           done
 
-          # === PUSH & PR ===
-          if [ $USE_PR -eq 1 ]; then
-            git push -u origin $BRANCH_NAME
-            echo "Membuat Pull Request..."
-            PR_URL=$(gh pr create --title "Daily update $TODAY" --body "Automated PR to balance PR stats.")
-            echo "Memberikan Code Review (comment)..."
-            gh pr review "$PR_URL" --comment -b "Lgtm! Automated review by bot."
-            echo "Merge Pull Request..."
-            gh pr merge "$PR_URL" --merge --delete-branch
+          # === PUSH LANGSUNG KE MAIN BRANCH (ini yang bikin hijau!) ===
+          git push
+          echo "✅ Push berhasil! Contribution graph akan hijau."
+
+  # === JOB 2: ISSUE (OPSIONAL, BOLEH GAGAL) ===
+  daily-issue:
+    runs-on: ubuntu-latest
+    needs: daily-commit
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create & close issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TODAY=$(date +'%Y-%m-%d')
+
+          # 50% chance buat issue
+          if [ $((RANDOM % 2)) -eq 1 ]; then
+            echo "Membuat Issue..."
+            ISSUE_URL=$(gh issue create --title "Log update for $TODAY" --body "Automated daily log issue." 2>&1) || {
+              echo "⚠️ Gagal buat issue, skip. Error: $ISSUE_URL"
+              exit 0
+            }
+            echo "Menutup Issue..."
+            gh issue close "$ISSUE_URL" --reason completed || echo "⚠️ Gagal tutup issue, skip."
           else
-            git push
+            echo "Skip issue hari ini."
+          fi
+
+  # === JOB 3: PR (OPSIONAL, BOLEH GAGAL) ===
+  daily-pr:
+    runs-on: ubuntu-latest
+    needs: daily-commit
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create PR with review
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TODAY=$(date +'%Y-%m-%d')
+
+          # 50% chance buat PR
+          if [ $((RANDOM % 2)) -eq 1 ]; then
+            GIT_USER="Renohidayat"
+            GIT_EMAIL="hidayatreno085@gmail.com"
+            git config user.name "$GIT_USER"
+            git config user.email "$GIT_EMAIL"
+
+            BRANCH_NAME="update-$TODAY-$RANDOM"
+            git checkout -b "$BRANCH_NAME"
+
+            # Buat perubahan kecil di branch
+            mkdir -p pr-logs
+            echo "- PR activity for $TODAY" >> "pr-logs/$TODAY.md"
+            git add -A
+            git commit -m "docs: PR update $TODAY"
+            git push -u origin "$BRANCH_NAME"
+
+            echo "Membuat Pull Request..."
+            PR_URL=$(gh pr create --title "Daily update $TODAY" --body "Automated PR." 2>&1) || {
+              echo "⚠️ Gagal buat PR. Error: $PR_URL"
+              exit 0
+            }
+
+            echo "Review & Merge..."
+            gh pr review "$PR_URL" --comment -b "Lgtm! Auto review." || true
+            gh pr merge "$PR_URL" --merge --delete-branch || echo "⚠️ Gagal merge PR, skip."
+          else
+            echo "Skip PR hari ini."
           fi
