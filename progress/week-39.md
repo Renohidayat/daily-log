@@ -14,3 +14,4 @@
 - [2026-10-02] Active (Update 12)
 - [2026-10-02] Active (Update 13)
 - [2026-10-03] Active (Update 7)
+- [2026-10-03] Active (Update 8)
